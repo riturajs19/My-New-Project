@@ -18,8 +18,3 @@ class CustomException(Exception):
         return self.error_message
     
 
-try:
-    a = 1 / 0
-except Exception as e:
-    logging.info("Divide by zero error occurred.")
-    raise CustomException(e, sys)
