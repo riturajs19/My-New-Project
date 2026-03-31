@@ -1,57 +1,101 @@
 import os
 import sys
-from src.logger import logging
-from src.exception import CustomException
-
 from dataclasses import dataclass
-import pandas as pd
-from sklearn.model_selection import train_test_split
 
-from src.components.data_transformation import DataTransformation
-from src.components.data_transformation import DataTransformationConfig
-from src.utils import save_object
+import numpy as np
+
+from src.exception import CustomException
+from src.logger import logging
+from src.utils import save_object, evaluate_models
+
+# Models
+from sklearn.linear_model import LinearRegression
+from sklearn.tree import DecisionTreeRegressor
+from sklearn.metrics import r2_score
+
+from sklearn.ensemble import (
+    RandomForestRegressor,
+    AdaBoostRegressor,
+    GradientBoostingRegressor,
+)
+
+from sklearn.neighbors import KNeighborsRegressor
+from catboost import CatBoostRegressor
+from xgboost import XGBRegressor
+
 
 @dataclass
-class DataIngestionConfig:
-    train_data_path: str = os.path.join('artifacts', 'train.csv')
-    test_data_path: str = os.path.join('artifacts', 'test.csv')
-    raw_data_path: str = os.path.join('artifacts', 'data.csv')
+class ModelTrainerConfig:
+    trained_model_file_path: str = os.path.join("artifacts", "model.pkl")
 
-class DataIngestion:
+
+class ModelTrainer:
     def __init__(self):
-        self.ingestion_config = DataIngestionConfig()
+        self.model_trainer_config = ModelTrainerConfig()
 
-    def initiate_data_ingestion(self):
-        logging.info("Entered the data ingestion method or component")
-        
+    def initiate_model_trainer(self, train_array, test_array):
         try:
-            df = pd.read_csv('notebook\data\stud.csv')
-            logging.info("Dataset read successfully")
+            logging.info("Model Trainer initiated")
 
-            os.makedirs(os.path.dirname(self.ingestion_config.train_data_path), exist_ok=True)
-            df.to_csv(self.ingestion_config.raw_data_path, index=False, header=True)
-            
-            logging.info("Raw data saved successfully")
+        
+            X_train, y_train = train_array[:, :-1], train_array[:, -1]
+            X_test, y_test = test_array[:, :-1], test_array[:, -1]
 
-            train_set, test_set = train_test_split(df, test_size=0.2, random_state=42)
+            logging.info("Split training and testing input data")
 
-            train_set.to_csv(self.ingestion_config.train_data_path, index=False, header=True)
-            test_set.to_csv(self.ingestion_config.test_data_path, index=False, header=True)
+            models = {
+                "Linear Regression": LinearRegression(),
+                "Random Forest": RandomForestRegressor(random_state=42),
+                "Decision Tree": DecisionTreeRegressor(random_state=42),
+                "Gradient Boosting": GradientBoostingRegressor(random_state=42),
+                "KNN": KNeighborsRegressor(),
+                "XGBoost": XGBRegressor(n_estimators=100, verbosity=0),
+                "CatBoost": CatBoostRegressor(verbose=False),
+                "AdaBoost": AdaBoostRegressor(random_state=42),
+            }
 
-            logging.info("Train and test data saved successfully")
+            logging.info("Models initialized")
 
-            return (
-                self.ingestion_config.train_data_path,
-                self.ingestion_config.test_data_path
+        
+            model_report: dict = evaluate_models(
+                X_train=X_train,
+                y_train=y_train,
+                X_test=X_test,
+                y_test=y_test,
+                models=models,
             )
 
-        except Exception as e:
-            logging.info("Error occurred while reading the dataset")
-            raise CustomException(e, sys)
-        
-if __name__ == "__main__": 
-    obj = DataIngestion()
-    train_data, test_data = obj.initiate_data_ingestion()
+            logging.info(f"Model Report: {model_report}")
 
-    data_transformation = DataTransformation()
-    data_transformation.initiate_data_transformation(train_data, test_data)
+          
+            best_model_name = max(model_report, key=model_report.get)
+            best_model_score = model_report[best_model_name]
+
+            best_model = models[best_model_name]
+
+            logging.info(f"Best Model Found: {best_model_name} with score {best_model_score}")
+
+      
+            if best_model_score < 0.6:
+                raise CustomException("No good model found", sys)
+
+         
+            best_model.fit(X_train, y_train)
+
+           
+            save_object(
+                file_path=self.model_trainer_config.trained_model_file_path,
+                obj=best_model,
+            )
+
+            logging.info("Best model saved successfully")
+
+         
+            predicted = best_model.predict(X_test)
+            r2_square = r2_score(y_test, predicted)
+
+            return r2_square
+
+        except Exception as e:
+            logging.info("Error occurred in Model Trainer")
+            raise CustomException(e, sys)
